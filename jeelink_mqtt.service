@@ -1,0 +1,13 @@
+[Unit]
+Description=JeeLink MQTT interface for Home Logic
+After=syslog.target network.target mosquitto.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/pi/scripts/python/jeelink_mqtt/jeelink_mqtt.py
+User=pi
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target
