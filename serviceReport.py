@@ -19,8 +19,8 @@ systemWatchTimer = current_sec_time()
 
 #Called by mqtt
 def on_message_check(client, userdata, msgJson):
-    if (current_sec_time() - systemWatchTimer) > 300:
-        sendCheckReportToHomeLogic(True, ACTION_RESTART, "Timeout systemWatchTimer, 5 min no activity in serialPortThread-thread loop")
+    if (current_sec_time() - systemWatchTimer) > 900:
+        sendCheckReportToHomeLogic(True, ACTION_RESTART, "Timeout systemWatchTimer, 15 min no activity in serialPortThread-thread loop")
     else:
         #print("on_message_check: " + msgJson.topic + ": " + str(msgJson.payload))
         sendCheckReportToHomeLogic(checkFail, checkAction, checkMsg)
