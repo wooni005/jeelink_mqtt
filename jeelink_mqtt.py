@@ -38,6 +38,7 @@ totalsInitialised = False
 firstPulsesMsg = True
 oldPulseTimer = 0
 oldPulses = 0
+oldTimeout = current_sec_time()
 #oldPulsesCEZ = {}
 sendQueue = Queue(maxsize=0)
 current_sec_time = lambda: int(round(time.time()))
@@ -196,7 +197,7 @@ def initJeeLink(ser):
 
 def serialPortThread():
     global serialPort
-
+    global oldTimeout
     global totalsInitialised
     global firstPulsesMsg
     global totalKWHpulsesI   # High tarif
@@ -250,14 +251,6 @@ def serialPortThread():
                     #jeeLinkRSSI = True
                     initJeeLink(serialPort)
                     print("JeeLink [RF12demo-rssi.8]: Adapter Initialized!...")
-
-                # Check the JeeLink Rx timeout
-                if (current_sec_time() - oldTimeout) > 300:
-                    # Reset the JeeLink Rx timeout timer
-                    oldTimeout = current_sec_time()
-
-                    #Report failure to Home Logic system check
-                    serviceReport.sendFailureToHomeLogic(serviceReport.ACTION_RESTART, 'Serial port timeout (5 min no data received)!')
 
                 # Only handle messages starting with 'OK' from JeeLink
                 if msg[0] == 'OK':
@@ -715,6 +708,15 @@ except Exception as e:
 
 while not exit:
     time.sleep(10)  # 60s
+
+    # Check the JeeLink Rx timeout
+    if (current_sec_time() - oldTimeout) > 300:
+        # Reset the JeeLink Rx timeout timer
+        oldTimeout = current_sec_time()
+
+        #Report failure to Home Logic system check
+        serviceReport.sendFailureToHomeLogic(serviceReport.ACTION_RESTART, 'Serial port timeout (5 min no data received)!')
+
 
 if serialPort is not None:
     closeSerialPort(serialPort)
