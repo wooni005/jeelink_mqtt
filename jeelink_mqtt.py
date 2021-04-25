@@ -17,6 +17,8 @@ import logger
 import serviceReport
 import settings
 
+current_sec_time = lambda: int(round(time.time()))
+
 rainQuantity = {"idx": 154, "svalue": "0;197.0"}
 
 #MQTT
@@ -38,11 +40,9 @@ totalsInitialised = False
 firstPulsesMsg = True
 oldPulseTimer = 0
 oldPulses = 0
-oldTimeout = current_sec_time()
 #oldPulsesCEZ = {}
 sendQueue = Queue(maxsize=0)
-current_sec_time = lambda: int(round(time.time()))
-current_milli_time = lambda: int(round(time.time() * 1000))
+
 jeeNodeRSSIlevels = ["dummy", "(-106dB)", "(-100dB)", "(-94dB)", "(-88dB)", "(-82dB)", "(-76dB)", "(-70dB)"]
 
 # Waterpomp
@@ -160,6 +160,7 @@ def on_message_totals(client, userdata, msgJson):
 
 
 def openSerialPort():
+    global exit
     try:
         ser = serial.Serial(port=settings.serialPortDevice,
                             baudrate=settings.serialPortBaudrate,
@@ -176,10 +177,14 @@ def openSerialPort():
     # Handle other exceptions and print the error
     except Exception as arg:
         print("%s" % str(arg))
-        traceback.print_exc()
+        # traceback.print_exc()
 
         #Report failure to Home Logic system check
         serviceReport.sendFailureToHomeLogic(serviceReport.ACTION_NOTHING, 'Serial port open failure on port %s, wrong port or USB cable missing' % (settings.serialPortDevice))
+
+        # Suppress restart loops
+        time.sleep(900) # 15 min
+        exit = True
 
 
 def closeSerialPort(ser):
@@ -197,7 +202,7 @@ def initJeeLink(ser):
 
 def serialPortThread():
     global serialPort
-    global oldTimeout
+    global exit
     global totalsInitialised
     global firstPulsesMsg
     global totalKWHpulsesI   # High tarif
@@ -205,8 +210,6 @@ def serialPortThread():
     global activeLowTarif
     global oldPulseTimer
     global oldPulses
-#    global oldPulsesCEZ
-    global current_sec_time
     global raining
     global oldRaining
     global oldMmRain
@@ -219,16 +222,11 @@ def serialPortThread():
     global checkMsg
     global somethingWrong
 
-    #battery = 0
-    #signal = 0
-    #jeeLinkRSSI = False
-    oldTimeout = current_sec_time()
-
     serialPort = openSerialPort()
 
     mqtt_publish.single("huis/HomeLogic/Get-kWh-Totals/command", 1, qos=1, hostname=settings.MQTT_ServerIP)
 
-    while True:
+    while not exit:
         try:
             if serialPort.isOpen():
                 serInLine = serialPort.readline().decode()
@@ -254,8 +252,8 @@ def serialPortThread():
 
                 # Only handle messages starting with 'OK' from JeeLink
                 if msg[0] == 'OK':
-                    # Reset the JeeLink Rx timeout timer
-                    oldTimeout = current_sec_time()
+                    # Reset the Rx timeout timer
+                    serviceReport.systemWatchTimer = current_sec_time()
 
                     # print 'OK found!'
                     del msg[0]  # remove 'OK' from list
@@ -407,36 +405,6 @@ def serialPortThread():
                                 waterPompStatus['Liters'] = 0
 
                         mqtt_publish.single("huis/JeeLink/Waterpomp/water", json.dumps(waterPompStatus, separators=(', ', ':')), qos=1, hostname=settings.MQTT_ServerIP)
-
-#                    # nodeId 4: Temperatuur bijgebouw
-#                    elif nodeId == 4:
-#                        #batteryLevel = int(msg[0])
-#                        #lowBat = int(msg[1])
-#                        # oneWireTemp1 = float(msg[2]) + float(msg[3]) * 256
-#                        # oneWireTemp2 = float(msg[4]) + float(msg[5]) * 256
-#                        # dht22Temp = float(msg[6]) + float(msg[7]) * 256
-#
-#                        oneWireTemp1 = float(c_int16(int(msg[2]) + int(msg[3]) * 256).value)
-#                        oneWireTemp2 = float(c_int16(int(msg[4]) + int(msg[5]) * 256).value)
-#                        dht22Temp = float(c_int16(int(msg[6]) + int(msg[7]) * 256).value)
-#                        dht22Humi = float(msg[8]) + float(msg[9]) * 256
-#
-#                        # print("Bijgebouw temp: batterij:%d lowBat:%d oneWireTemp1:%.1f oneWireTemp2:%.1f dht22Temp:%.1f dht22Humi:%d" %
-#                        #      (batteryLevel, lowBat, oneWireTemp1 / 10, oneWireTemp2 / 10, dht22Temp / 10, dht22Humi))
-#
-#                        # werkplaatsTemp = { "idx": 328, "svalue" : "0.0;0;0"} # Temp
-#                        # schuurTemp     = { "idx": 329, "svalue" : "0.0;0;0"} # Temp
-#                        # kelderTempHum  = { "idx": 330, "svalue" : "0.0;0;0"} # Temp;Hum;Dew
-#
-#                        # DHT22 temp/humi sensor
-#                        kelderTempHum['svalue'] = "%2.1f;%d;0" % (dht22Temp / 10, dht22Humi)
-#                        mqtt_publish.single("domoticz/in", json.dumps(kelderTempHum, separators=(', ', ':')), qos=1, hostname=settings.MQTT_ServerIP)
-#
-#                        # DS18B20 temp sensoren
-#                        werkplaatsTemp['svalue'] = "%2.1f" % (oneWireTemp1 / 10)
-#                        mqtt_publish.single("domoticz/in", json.dumps(werkplaatsTemp, separators=(', ', ':')), qos=1, hostname=settings.MQTT_ServerIP)
-#                        schuurTemp['svalue'] = "%2.1f" % (oneWireTemp2 / 10)
-#                        mqtt_publish.single("domoticz/in", json.dumps(schuurTemp, separators=(', ', ':')), qos=1, hostname=settings.MQTT_ServerIP)
 
                     # nodeId 5: Brievenbus post notificatie
                     elif nodeId == 5:
@@ -620,8 +588,6 @@ def serialPortThread():
                     else:
                         print(("JeeLink: Received an unknown message from NodeID %d" % nodeId))
 
-                serviceReport.systemWatchTimer = current_sec_time()
-
             # Check if there is any message to send via JeeLink
             if not sendQueue.empty():
                 sendMsg = sendQueue.get_nowait()
@@ -707,15 +673,7 @@ except Exception as e:
 
 
 while not exit:
-    time.sleep(10)  # 60s
-
-    # Check the JeeLink Rx timeout
-    if (current_sec_time() - oldTimeout) > 300:
-        # Reset the JeeLink Rx timeout timer
-        oldTimeout = current_sec_time()
-
-        #Report failure to Home Logic system check
-        serviceReport.sendFailureToHomeLogic(serviceReport.ACTION_RESTART, 'Serial port timeout (5 min no data received)!')
+    time.sleep(30)  # 30s
 
 
 if serialPort is not None:
