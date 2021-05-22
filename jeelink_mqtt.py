@@ -7,6 +7,7 @@ import serial
 import _thread
 import traceback
 import json
+import glob
 
 from queue import Queue
 import paho.mqtt.publish as mqtt_publish
@@ -42,6 +43,7 @@ oldPulseTimer = 0
 oldPulses = 0
 #oldPulsesCEZ = {}
 sendQueue = Queue(maxsize=0)
+openPorts = {}
 
 jeeNodeRSSIlevels = ["dummy", "(-106dB)", "(-100dB)", "(-94dB)", "(-88dB)", "(-82dB)", "(-76dB)", "(-70dB)"]
 
@@ -146,7 +148,7 @@ def on_message_totals(client, userdata, msgJson):
     if msgPayload != '0':
         if not totalsInitialised:  # Name: "Node CEZ meter"
             msg = json.loads(msgPayload)
-            print(msg['oldPulses'])
+            # print(msg['oldPulses'])
             totalKWHpulsesI  = msg['totalKWHpulsesI']
             totalKWHpulsesII = msg['totalKWHpulsesII']
             oldPulses           = msg['oldPulses']
@@ -161,34 +163,58 @@ def on_message_totals(client, userdata, msgJson):
 
 def openSerialPort():
     global exit
-    try:
-        ser = serial.Serial(port=settings.serialPortDevice,
-                            baudrate=settings.serialPortBaudrate,
-                            parity=serial.PARITY_NONE,
-                            stopbits=serial.STOPBITS_ONE,
-                            bytesize=serial.EIGHTBITS,
-                            timeout=1)  # 1=1sec 0=non-blocking None=Blocked
+    global openPorts
 
-        if ser.isOpen():
-            print(("jeelink_mqtt: Successfully connected to serial port %s" % (settings.serialPortDevice)))
+    # Get a list of to be opened serial ports
+    ports = glob.glob(settings.SERIAL_PORT_DEVICE_BASE)
 
-        return ser
+    for port in ports:
+        try:
+            print("Trying port: %s" % port)
+            ser = serial.Serial(port=port,
+                                baudrate=settings.SERIAL_PORT_BAUDRATE,
+                                parity=serial.PARITY_NONE,
+                                stopbits=serial.STOPBITS_ONE,
+                                bytesize=serial.EIGHTBITS,
+                                timeout=1)  # 1=1sec 0=non-blocking None=Blocked
 
-    # Handle other exceptions and print the error
-    except Exception as arg:
-        print("%s" % str(arg))
-        # traceback.print_exc()
+            if ser.isOpen():
+                print(("Connected to serial port %s, now testing which board is connected:" % (port)))
+                found = False
+                timeoutTimer = current_sec_time()
+                while not found:
+                    ser.write("0v".encode())
+                    serInLine = ser.readline().decode()
+                    serInLine = serInLine.rstrip("\r\n")
+                    if serInLine != "":
+                        msg = serInLine.split(' ')
+                        # print(msg)
+                        if msg[0][0] == '[':
+                            boardName = msg[0]
+                            if boardName == '[RF12demo.12]':
+                                openPorts[boardName] = ser
+                                print(" - JeeLink adapter %s found on device %s" % (boardName, ser.name))
+                                found = True
+                    if exit or (current_sec_time() - timeoutTimer) > 5:
+                        print("timeout!")
+                        break
+                if not found:
+                    print(' - Not the correct board found: %s' % boardName)
 
+        # Handle other exceptions and print the error
+        except Exception:
+            print("Unable to open port %s, trying next one" % port)
+            # print("Exception: %s" % str(e))
+            # traceback.print_exc()
+
+    nrOfFoundPorts = len(openPorts)
+    if nrOfFoundPorts != settings.NR_OF_BOARDS:
         #Report failure to Home Logic system check
-        serviceReport.sendFailureToHomeLogic(serviceReport.ACTION_NOTHING, 'Serial port open failure on port %s, wrong port or USB cable missing' % (settings.serialPortDevice))
+        serviceReport.sendFailureToHomeLogic(serviceReport.ACTION_RESTART, 'Not enough GPIO ports found. Found %d, but need 3 serial ports' % nrOfFoundPorts)
 
-        # Suppress restart loops
-        time.sleep(900) # 15 min
+        # # Suppress restart loops from systemd if something is wrong
+        time.sleep(780) # 13 min
         exit = True
-
-
-def closeSerialPort(ser):
-    ser.close()
 
 
 def initJeeLink(ser):
@@ -200,7 +226,7 @@ def initJeeLink(ser):
     ser.write("0l".encode())  # Led off
 
 
-def serialPortThread():
+def serialPortThread(boardName, dummy):
     global serialPort
     global exit
     global totalsInitialised
@@ -221,9 +247,9 @@ def serialPortThread():
 
     global checkMsg
     global somethingWrong
+    global openPorts
 
-    serialPort = openSerialPort()
-
+    serialPort = openPorts[boardName]
     mqtt_publish.single("huis/HomeLogic/Get-kWh-Totals/command", 1, qos=1, hostname=settings.MQTT_ServerIP)
 
     while not exit:
@@ -639,7 +665,7 @@ logger.initLogger(settings.LOG_FILENAME)
 signal.signal(signal.SIGINT, signal_handler)
 
 # Make the following devices accessable for user
-os.system("sudo chmod 666 %s" % settings.serialPortDevice)
+os.system("sudo chmod 666 %s" % settings.SERIAL_PORT_DEVICE_BASE)
 
 # Give Mosquitto and Home_logic the time to startup
 time.sleep(6)
@@ -656,28 +682,30 @@ client.on_message = on_message
 client.connect(settings.MQTT_ServerIP, settings.MQTT_ServerPort, 60)
 client.loop_start()
 
+# Search for the correct ports and open the ports
+openSerialPort()
+
 # Create the serialPortThread
 try:
     # thread.start_new_thread( print_time, (60, ) )
-    _thread.start_new_thread(serialPortThread, ())
+    _thread.start_new_thread(serialPortThread, (settings.BOARD_NAME, 0))
+
 except Exception as e:
     print("Error: unable to start the serialPortThread")
     print("Exception: %s" % str(e))
     traceback.print_exc()
-
 
 # Blocking call that processes network traffic, dispatches callbacks and
 # handles reconnecting.
 # Other loop*() functions are available that give a threaded interface and a
 # manual interface.
 
-
 while not exit:
     time.sleep(30)  # 30s
 
-
-if serialPort is not None:
-    closeSerialPort(serialPort)
-    print('Closed serial port')
+for board in openPorts:
+    print("Closed port %s for board %s" % (openPorts[board].name, board))
+    if openPorts[board] is not None:
+        openPorts[board].close()
 
 print("Clean exit!")

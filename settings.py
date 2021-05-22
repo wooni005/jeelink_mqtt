@@ -2,9 +2,16 @@
 
 MQTT_ServerIP     = "192.168.5.248"
 MQTT_ServerPort   = 1883
-serialPortDevice  = '/dev/ttyUSB0'
-serialPortBaudrate = 57600
-LOG_FILENAME      = "/home/pi/log/jeelink_mqtt.log"
+
+# On these ports the right boards will be attached
+SERIAL_PORT_DEVICE_BASE = '/dev/ttyUSB*'
+# serialPortDevice  = '/dev/ttyUSB0'
+
+BOARD_NAME = '[RF12demo.12]'
+NR_OF_BOARDS = 1
+
+SERIAL_PORT_BAUDRATE = 57600
+LOG_FILENAME         = "/home/pi/log/jeelink_mqtt.log"
 
 MQTT_TOPIC_OUT       = 'huis/JeeLink/+/out'
 #Bediend door gebruiker:
