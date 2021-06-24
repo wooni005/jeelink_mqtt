@@ -210,7 +210,7 @@ def openSerialPort():
     nrOfFoundPorts = len(openPorts)
     if nrOfFoundPorts != settings.NR_OF_BOARDS:
         #Report failure to Home Logic system check
-        serviceReport.sendFailureToHomeLogic(serviceReport.ACTION_RESTART, 'Not enough GPIO ports found. Found %d, but need 3 serial ports' % nrOfFoundPorts)
+        serviceReport.sendFailureToHomeLogic(serviceReport.ACTION_RESTART, 'Not enough GPIO ports found. Found %d and need %d serial ports' % (nrOfFoundPorts, settings.NR_OF_BOARDS))
 
         # # Suppress restart loops from systemd if something is wrong
         time.sleep(780) # 13 min
