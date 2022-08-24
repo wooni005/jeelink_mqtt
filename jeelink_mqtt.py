@@ -18,16 +18,14 @@ import logger
 import serviceReport
 import settings
 
-current_sec_time = lambda: int(round(time.time()))
-
 rainQuantity = {"idx": 154, "svalue": "0;197.0"}
 
-#MQTT
+# MQTT
 kwhMeterStatus = {"totalKWHpulsesI": 0, "totalKWHpulsesII": 0, "power": 0.0}
 waterPompStatus = {}
 postbusStatus = {}
 
-#Rain detection
+# Rain detection
 raining = False
 oldRaining = False
 oldMmRain = 0
@@ -41,7 +39,7 @@ totalsInitialised = False
 firstPulsesMsg = True
 oldPulseTimer = 0
 oldPulses = 0
-#oldPulsesCEZ = {}
+# oldPulsesCEZ = {}
 sendQueue = Queue(maxsize=0)
 openPorts = {}
 
@@ -50,43 +48,47 @@ jeeNodeRSSIlevels = ["dummy", "(-106dB)", "(-100dB)", "(-94dB)", "(-88dB)", "(-8
 # Waterpomp
 oldPompAanRelais = 0
 
-exit = False
+exitThread = False
 serialPort = None
 
 
+def current_sec_time():
+    return int(round(time.time()))
+
+
 def signal_handler(_signal, frame):
-    global exit
+    global exitThread
 
     print('You pressed Ctrl+C!')
-    exit = True
+    exitThread = True
 
 
-def on_message(client, userdata, msgJson):
+def on_message(_client, userdata, msgJson):
     print(('ERROR: Received ' + msgJson.topic + ' in on_message function' + str(msgJson.payload)))
 
 
 def setFS20ST(unit, val):
-    #10;NewKaku;00baea06;3;ON;
+    # 10;NewKaku;00baea06;3;ON;
     if int(val) != 0:
         sendQueue.put("17,17,%d,17f".encode() % unit)
     else:
         sendQueue.put("17,17,%d,0f".encode() % unit)
 
 
-def on_message_out(client, userdata, msg):
+def on_message_out(_client, userdata, msg):
     # print(("on_message_out:" + msg.topic + " " + str(msg.payload)))
-    #print(msg.topic + " " + str(msg.payload))
+    # print(msg.topic + " " + str(msg.payload))
     topics = msg.topic.split("/")
 
-    deviceName = topics[2] #huis/JeeLink/FS20ST-1/out
-    cmnd = deviceName.split("-") #KaKu-12
+    deviceName = topics[2]  # huis/JeeLink/FS20ST-1/out
+    cmnd = deviceName.split("-")  # KaKu-12
 
     if cmnd[0] == "FS20ST":
-        #print("Activate FS20ST WCD: %s" % cmnd[1])
+        # print("Activate FS20ST WCD: %s" % cmnd[1])
         setFS20ST(int(cmnd[1]), msg.payload)
 
 
-def on_message_homeassistant_bediening(client, userdata, msg):
+def on_message_homeassistant_bediening(_client, userdata, msg):
     global activeLowTarif
 
     # print("on_message_homeassistant_bediening:" + msg.topic + " " + str(msg.payload))
@@ -94,29 +96,29 @@ def on_message_homeassistant_bediening(client, userdata, msg):
 
     topc = msg.topic.split('/')
     deviceName = topc[2]
-    #print(deviceName)
+    # print(deviceName)
     if deviceName == 'Waterpomp-Reset':
         if int(msg.payload) == 1:
             print("Waterpomp: Reset")
-            sendQueue.put("2,3a".encode()) #Waterpomp: Reset
+            sendQueue.put("2,3a".encode())  # Waterpomp: Reset
     elif deviceName == 'Waterpomp-Blokkeren':
         stat = int(msg.payload)
         if stat == 1:
             print("Waterpomp: Blokkeren")
-            sendQueue.put("9,3a".encode()) #Waterpomp: Blokkeren
+            sendQueue.put("9,3a".encode())  # Waterpomp: Blokkeren
     elif deviceName == 'Waterpomp-GetInfo':
-        stat = int(msg.payload)
-        sendQueue.put("10,3a".encode()) #Waterpomp: Info ophalen
+        # stat = int(msg.payload)
+        sendQueue.put("10,3a".encode())  # Waterpomp: Info ophalen
     elif deviceName == 'Waterpomp-Debug':
         if int(msg.payload) == 1:
             print("Waterpomp: Debug aan")
-            sendQueue.put("1,3a".encode()) #Waterpomp: Debug aan
+            sendQueue.put("1,3a".encode())  # Waterpomp: Debug aan
         else:
             print("Waterpomp: Debug uit")
-            sendQueue.put("0,3a".encode()) #Waterpomp: Debug uit
+            sendQueue.put("0,3a".encode())  # Waterpomp: Debug uit
 
 
-def on_message_homelogic_bediening(client, userdata, msg):
+def on_message_homelogic_bediening(_client, userdata, msg):
     global activeLowTarif
 
     # print("on_message_homelogic_bediening:" + msg.topic + " " + str(msg.payload))
@@ -124,7 +126,7 @@ def on_message_homelogic_bediening(client, userdata, msg):
 
     topc = msg.topic.split('/')
     deviceName = topc[2]
-    #print(deviceName)
+    # print(deviceName)
     if deviceName == 'Actief-Laag-tarief-CEZ':
         if int(msg.payload) == 1:
             activeLowTarif = True
@@ -132,8 +134,8 @@ def on_message_homelogic_bediening(client, userdata, msg):
             activeLowTarif = False
 
 
-#huis/JeeLink/Get-kWh-Totals/totals
-def on_message_totals(client, userdata, msgJson):
+# huis/JeeLink/Get-kWh-Totals/totals
+def on_message_totals(_client, userdata, msgJson):
     global totalsInitialised
     global totalKWHpulsesI
     global totalKWHpulsesII
@@ -149,9 +151,9 @@ def on_message_totals(client, userdata, msgJson):
         if not totalsInitialised:  # Name: "Node CEZ meter"
             msg = json.loads(msgPayload)
             # print(msg['oldPulses'])
-            totalKWHpulsesI  = msg['totalKWHpulsesI']
+            totalKWHpulsesI = msg['totalKWHpulsesI']
             totalKWHpulsesII = msg['totalKWHpulsesII']
-            oldPulses           = msg['oldPulses']
+            oldPulses = msg['oldPulses']
             totalsInitialised = True
             firstPulsesMsg = True
             oldPulseTimer = current_sec_time()
@@ -162,7 +164,7 @@ def on_message_totals(client, userdata, msgJson):
 
 
 def openSerialPort():
-    global exit
+    global exitThread
     global openPorts
 
     # Get a list of to be opened serial ports
@@ -179,8 +181,9 @@ def openSerialPort():
                                 timeout=1)  # 1=1sec 0=non-blocking None=Blocked
 
             if ser.isOpen():
-                print(("Connected to serial port %s, now testing which board is connected:" % (port)))
+                print(("Connected to serial port %s, now testing which board is connected:" % port))
                 found = False
+                boardName = ""
                 timeoutTimer = current_sec_time()
                 while not found:
                     ser.write("0v".encode())
@@ -195,7 +198,7 @@ def openSerialPort():
                                 openPorts[boardName] = ser
                                 print(" - JeeLink adapter %s found on device %s" % (boardName, ser.name))
                                 found = True
-                    if exit or (current_sec_time() - timeoutTimer) > 5:
+                    if exitThread or (current_sec_time() - timeoutTimer) > 5:
                         print("timeout!")
                         break
                 if not found:
@@ -209,12 +212,12 @@ def openSerialPort():
 
     nrOfFoundPorts = len(openPorts)
     if nrOfFoundPorts != settings.NR_OF_BOARDS:
-        #Report failure to Home Logic system check
+        # Report failure to Home Logic system check
         serviceReport.sendFailureToHomeLogic(serviceReport.ACTION_RESTART, 'Not enough GPIO ports found. Found %d and need %d serial ports' % (nrOfFoundPorts, settings.NR_OF_BOARDS))
 
         # # Suppress restart loops from systemd if something is wrong
-        time.sleep(780) # 13 min
-        exit = True
+        time.sleep(780)  # 13 min
+        exitThread = True
 
 
 def initJeeLink(ser):
@@ -228,7 +231,7 @@ def initJeeLink(ser):
 
 def serialPortThread(boardName, dummy):
     global serialPort
-    global exit
+    global exitThread
     global totalsInitialised
     global firstPulsesMsg
     global totalKWHpulsesI   # High tarif
@@ -245,14 +248,12 @@ def serialPortThread(boardName, dummy):
     # Waterpomp regeling
     global oldPompAanRelais
 
-    global checkMsg
-    global somethingWrong
     global openPorts
 
     serialPort = openPorts[boardName]
     mqtt_publish.single("huis/HomeLogic/Get-kWh-Totals/command", 1, qos=1, hostname=settings.MQTT_ServerIP)
 
-    while not exit:
+    while not exitThread:
         try:
             if serialPort.isOpen():
                 serInLine = serialPort.readline().decode()
@@ -263,16 +264,16 @@ def serialPortThread(boardName, dummy):
                 serInLine = serInLine.rstrip("\r\n")
                 # print('JeeLink: %s' % (serInLine))
                 msg = serInLine.split(' ')
-                #print(msg)
+                # print(msg)
                 # JeeLink is started: Init it
                 if msg[0] == "[RF12demo.12]":
-                    #jeeLinkRSSI = False
+                    # jeeLinkRSSI = False
                     initJeeLink(serialPort)
                     print("JeeLink[RF12demo.12]: Adapter Initialized!...")
 
                 # JeeLink with rssi software (signal strength) is started: Init it
                 if msg[0] == "[RF12demo-rssi.8]":
-                    #jeeLinkRSSI = True
+                    # jeeLinkRSSI = True
                     initJeeLink(serialPort)
                     print("JeeLink [RF12demo-rssi.8]: Adapter Initialized!...")
 
@@ -288,13 +289,13 @@ def serialPortThread(boardName, dummy):
                     del msg[0]  # remove NodeId from list
 
                     # if available, gt the rssi signal strength
-                    #if jeeLinkRSSI:
+                    # if jeeLinkRSSI:
                     #     JeeNode RSSI Signal level can contain: -106, -100, -94, -88, -82, -76, -70
                     #     Domoticz gets signal level 1..7 (7=best)
                     #     signal = jeeNodeRSSIlevels.index(msg[-1])
                     #     print "JeeNode RSSI %s -> Domoticz signal %d" % (msg[-1], signal)
 
-                    #print("NodeId: %d Msg: %s" % (nodeId, msg))
+                    # print("NodeId: %d Msg: %s" % (nodeId, msg))
 
                     # nodeId 2: CEZ pulse counter
                     if nodeId == 2:
@@ -319,7 +320,7 @@ def serialPortThread(boardName, dummy):
                         # print("diffPulseTime: %d, oldPulseTimer: %d" % (diffPulseTime, oldPulseTimer))
 
                         pulses = newPulses - oldPulses
-                        #print("newPulses: %d, oldPulses: %d, pulses: %d" % (newPulses, oldPulses, pulses))
+                        # print("newPulses: %d, oldPulses: %d, pulses: %d" % (newPulses, oldPulses, pulses))
 
                         if oldPulses > newPulses:
                             pulses = pulses + 0x10000  # The pulse counter rolled through to 0
@@ -349,19 +350,19 @@ def serialPortThread(boardName, dummy):
                             power = power / diffPulseTime
 
                         if totalsInitialised:
-                            #print('totalsInitialised=True')
+                            # print('totalsInitialised=True')
 
                             kwhMeterStatus['totalKWHpulsesI'] = totalKWHpulsesI
                             kwhMeterStatus['totalKWHpulsesII'] = totalKWHpulsesII
                             kwhMeterStatus['addedKWHpulsesI'] = addedKWHpulsesI
                             kwhMeterStatus['addedKWHpulsesII'] = addedKWHpulsesII
-                            kwhMeterStatus['power'] = ("%1.1f" % power)
+                            kwhMeterStatus['power'] = "%1.1f" % power
                             kwhMeterStatus['oldPulses'] = oldPulses
-                            #kwhMeterStatus['signal'] = signal
+                            # kwhMeterStatus['signal'] = signal
                             kwhMeterStatus['battery'] = batteryLevel
                             mqtt_publish.single("huis/JeeLink/Node-CEZ-Elek-meter/power", json.dumps(kwhMeterStatus, separators=(', ', ':')), qos=1, hostname=settings.MQTT_ServerIP)
                         else:
-                            #print('totalsInitialised=False')
+                            # print('totalsInitialised=False')
                             mqtt_publish.single("huis/HomeLogic/Get-kWh-Totals/command", 1, qos=1, hostname=settings.MQTT_ServerIP)
 
                         # if not activeLowTarif:
@@ -379,29 +380,29 @@ def serialPortThread(boardName, dummy):
 
                         pompAanTijd = int(float(msg[0]) + float(msg[1]) * 256)
                         pompUitTijd = int(float(msg[2]) + float(msg[3]) * 256)
-                        pompAanRelais         = int(msg[4])
-                        waterDruk             = int(msg[5])
-                        waterDrukAan          = int(msg[6])
-                        waterDrukUit          = int(msg[7])
-                        pompLed               = int(msg[8])
-                        storingsLed           = int(msg[9])
-                        pompGeblokkeerd       = int(msg[10])
-                        # waterdrukMask       = int(msg[11])
-                        waarschuwingsMelding  = int(msg[12])
-                        alarmMelding          = int(msg[13])
+                        pompAanRelais = int(msg[4])
+                        waterDruk = int(msg[5])
+                        waterDrukAan = int(msg[6])
+                        waterDrukUit = int(msg[7])
+                        pompLed = int(msg[8])
+                        storingsLed = int(msg[9])
+                        pompGeblokkeerd = int(msg[10])
+                        # waterdrukMask = int(msg[11])
+                        waarschuwingsMelding = int(msg[12])
+                        alarmMelding = int(msg[13])
 
-                        waterPompStatus['pompAanTijd']          = pompAanTijd / 10
-                        waterPompStatus['pompUitTijd']          = pompUitTijd / 10
-                        waterPompStatus['pompAanRelais']        = pompAanRelais
-                        waterPompStatus['waterDruk']            = waterDruk
-                        waterPompStatus['waterDrukAan']         = waterDrukAan
-                        waterPompStatus['waterDrukUit']         = waterDrukUit
-                        waterPompStatus['pompLed']              = pompLed
-                        waterPompStatus['storingsLed']          = storingsLed
-                        waterPompStatus['pompGeblokkeerd']      = pompGeblokkeerd
-                        # waterPompStatus['waterdrukMask']      = waterdrukMask
+                        waterPompStatus['pompAanTijd'] = pompAanTijd / 10
+                        waterPompStatus['pompUitTijd'] = pompUitTijd / 10
+                        waterPompStatus['pompAanRelais'] = pompAanRelais
+                        waterPompStatus['waterDruk'] = waterDruk
+                        waterPompStatus['waterDrukAan'] = waterDrukAan
+                        waterPompStatus['waterDrukUit'] = waterDrukUit
+                        waterPompStatus['pompLed'] = pompLed
+                        waterPompStatus['storingsLed'] = storingsLed
+                        waterPompStatus['pompGeblokkeerd'] = pompGeblokkeerd
+                        # waterPompStatus['waterdrukMask'] = waterdrukMask
                         waterPompStatus['waarschuwingsMelding'] = waarschuwingsMelding
-                        waterPompStatus['alarmMelding']         = alarmMelding
+                        waterPompStatus['alarmMelding'] = alarmMelding
 
                         # print("Waterpomp: pompAanRelais:%d waterDruk:%d bar orgDrukRegeling:%d drukAan:%d" \
                         #      " drukUit:%d pompLed:%d storingsLed:%d pompGeblokkeerd:%d niemandThuis:%d waarschuwing:%d" \
@@ -421,9 +422,8 @@ def serialPortThread(boardName, dummy):
                                 # print(("Aantal liters gepompt water: %.2f liter (pompAanTijd: %.1f sec)" % (litersWater / 10, pompAanTijd / 10)))
                                 # http://192.168.5.248:8080/json.htm?type=command&param=udevice&idx=324&svalue=5
 
-                                sensorData = {}
                                 fLitersWater = float(litersWater / 10)
-                                sensorData['Liters'] = '%1.1f' % fLitersWater
+                                sensorData = {'Liters': '%1.1f' % fLitersWater}
                                 mqtt_publish.single("huis/JeeLink/Water-verbruik/water", json.dumps(sensorData, separators=(', ', ':')), qos=1, hostname=settings.MQTT_ServerIP)
                                 waterPompStatus['Liters'] = '%1.1f' % fLitersWater
                             else:
@@ -438,7 +438,7 @@ def serialPortThread(boardName, dummy):
                         # Unknown wat the empty value level is for the JeeNode, we shall see :-)
                         status = int(msg[2])
                         batteryLevel = int(msg[0]) - 15
-                        #print("Brievenbus post notificatie: doorOpen: %d, batterij:%d" % (status, batteryLevel))
+                        # print("Brievenbus post notificatie: doorOpen: %d, batterij:%d" % (status, batteryLevel))
 
                         postbusStatus['battery'] = batteryLevel
                         postbusStatus['lidChange'] = int(msg[1])
@@ -461,7 +461,7 @@ def serialPortThread(boardName, dummy):
                         sensorType = int(msg[1]) & 0x0F
                         # print("JeeLink: msgLength %d, decoderType:%d, senorType %d" % (msgLength, decoderType, sensorType))
 
-                        if ((decoderType == 3) and (sensorType == 7) and (msgLength == 8)):
+                        if (decoderType == 3) and (sensorType == 7) and (msgLength == 8):
                             # Message from KS300/KS555 Conrad/ELV Weatherstation
 
                             # Message format:
@@ -477,11 +477,11 @@ def serialPortThread(boardName, dummy):
                             # Convert outside temperature
                             temp = (10 * (int(msg[3]) & 0x0F)) + (int(msg[2]) >> 4) + (0.1 * (int(msg[2]) & 0x0F))
                             sensorStat = int(msg[1])
-                            if ((sensorStat & 0x80) == 0x80):
+                            if (sensorStat & 0x80) == 0x80:
                                 # Temperature sign: negative temperature
                                 temp = -temp
 
-                            if ((sensorStat & 0x20) == 0x20):
+                            if (sensorStat & 0x20) == 0x20:
                                 # Rain dectector
                                 rainingBit = True
                             else:
@@ -500,19 +500,19 @@ def serialPortThread(boardName, dummy):
                             # (float(RainCounter)*10.0f)*0.253f)
                             # rainQuantity   = { "idx": 154, "svalue" : "0;197.0"}
                             mmRain = (raincounter * 0.253)
-                            #print("mmRain: %1.2f" % (mmRain))
+                            # print("mmRain: %1.2f" % (mmRain))
                             addedMmRain = 0.0
                             if firstRainPulsesMsg:
                                 firstRainPulsesMsg = False
                                 print("Initialise the rain detection counter, without triggering it's raining")
                                 oldMmRain = raincounter
                                 rainTimer = current_sec_time()
-                                #mqtt_publish.single("huis/HomeLogic/Actief-Regen/bediening", 0, qos=1, hostname="192.168.5.248")
+                                # mqtt_publish.single("huis/HomeLogic/Actief-Regen/bediening", 0, qos=1, hostname="192.168.5.248")
                             else:
-                                if (mmRain != oldMmRain):
+                                if mmRain != oldMmRain:
                                     addedMmRain = mmRain - oldMmRain
 
-                                    #Wrong measurement, more than 10mm in 3-5 minutes
+                                    # Wrong measurement, more than 10mm in 3-5 minutes
                                     if addedMmRain >= 100.0:
                                         print(('addedMmRain: %1.2f: Wrong measurement, more than 100mm in 3-5 minutes, addedMmRain set to 0' % addedMmRain))
                                         addedMmRain = 0.0
@@ -528,19 +528,19 @@ def serialPortThread(boardName, dummy):
                                     rainTimer = current_sec_time()
                                 else:
                                     if raining:
-                                        # It was raining but it's maybe dry, wait 20 min
+                                        # It was raining, but it's maybe dry, wait 20 min
                                         if current_sec_time() - rainTimer >= 1200:
                                             raining = False
                                             # print("KS555: Het is nu droog")
 
-                                #Check if the rainCounter detected rain
+                                # Check if the rainCounter detected rain
                                 if not raining:
-                                    #If not, check if the rain detector detected rain
+                                    # If not, check if the rain detector detected rain
                                     if rainingBit:
                                         raining = True
-                                #else:
-                                    #If rain already detected by the rainCounter, leave this status.
-                                    #Because the rain detector switches off very fast
+                                # else:
+                                    # If rain already detected by the rainCounter, leave this status.
+                                    # Because the rain detector switches off very fast
 
                                 if oldRaining != raining:
                                     oldRaining = raining
@@ -559,29 +559,25 @@ def serialPortThread(boardName, dummy):
                             #   print("JeeLink: KS300: It is raining at this moment")
                             #
 
-                            if ((sensorStat & 0x40) != 0):
+                            if (sensorStat & 0x40) != 0:
                                 # Low batt signal??
                                 print("JeeLink: KS300: bit 6 normally 0, but now it is 1. Is this a low-batt bit")
 
-                            if ((sensorStat & 0x10) == 0):
+                            if (sensorStat & 0x10) == 0:
                                 # Low batt signal??
                                 print("JeeLink: KS300: bit 4 normally 1, but now it is 0. Is this a low-batt bit")
 
-                            sensorData = {}
-                            #sensorData['Temperature'] = temp
-                            sensorData['Temperature'] = '%1.1f' % temp
-                            sensorData['Humidity']    = '%d' % humidity
-                            sensorData['Rain']        = "%1.2f" % addedMmRain
-                            sensorData['Windspeed']   = "%1.1f" % windspeed #Naar MQTT windspeed in 0,1 km/h
-                            sensorData['Raining']     = raining
-                            sensorData['RainingBit']  = rainingBit
+                            sensorData = {'Temperature': '%1.1f' % temp, 'Humidity': '%d' % humidity,
+                                          'Rain': "%1.2f" % addedMmRain, 'Windspeed': "%1.1f" % windspeed,
+                                          'Raining': raining, 'RainingBit': rainingBit}
+                            # sensorData['Temperature'] = temp
 
-                            #sensorData['Battery level'] = batteryLevel
-                            #sensorData['Signal level'] = signal
+                            # sensorData['Battery level'] = batteryLevel
+                            # sensorData['Signal level'] = signal
 
                             mqtt_publish.single("huis/JeeLink/Weerstation/weer", json.dumps(sensorData, separators=(', ', ':')), qos=1, hostname="192.168.5.248", retain=True)
 
-                        elif ((decoderType == 3) and (sensorType == 1) and (msgLength == 5)):
+                        elif (decoderType == 3) and (sensorType == 1) and (msgLength == 5):
                             # Message from Conrad/ELV S300 Temp/humidity
 
                             sensorStat = int(msg[1])
@@ -595,7 +591,7 @@ def serialPortThread(boardName, dummy):
 
                             # Convert temperature
                             temp = (10 * (int(msg[3]) & 0x0F)) + (int(msg[2]) >> 4) + (0.1 * (int(msg[2]) & 0x0F))
-                            if ((sensorStat & 0x80) != 0):
+                            if (sensorStat & 0x80) != 0:
                                 # Temperature sign: negative temperature
                                 temp = -temp
 
@@ -604,11 +600,9 @@ def serialPortThread(boardName, dummy):
 
                             # print("JeeLink: S300 Temp %2.1f C, humidity %d %%" % (temp, humidity))
 
-                            sensorData = {}
-                            sensorData['Temperature'] = temp
-                            sensorData['Humidity']    = humidity
-                            #sensorData['Battery level'] = batteryLevel
-                            #sensorData['Signal level'] = signal
+                            sensorData = {'Temperature': temp, 'Humidity': humidity}
+                            # sensorData['Battery level'] = batteryLevel
+                            # sensorData['Signal level'] = signal
 
                             mqtt_publish.single("huis/JeeLink/Temp-Vriezer/temp", json.dumps(sensorData, separators=(', ', ':')), hostname="192.168.5.248", retain=True)
                     else:
@@ -648,10 +642,10 @@ def print_time(delay):
 
 
 # The callback for when the client receives a CONNACK response from the server.
-def on_connect(client, userdata, flags, rc):
+def on_connect(_client, userdata, flags, rc):
     if rc == 0:
         print("MQTT Client connected successfully")
-        client.subscribe([(settings.MQTT_TOPIC_OUT, 1), (settings.MQTT_TOPIC_HOMEASSISTANT_BEDIENING, 1), (settings.MQTT_TOPIC_HOMELOGIC_BEDIENING, 1), (settings.MQTT_TOPIC_TOTALS, 1), (settings.MQTT_TOPIC_CHECK, 1)])
+        _client.subscribe([(settings.MQTT_TOPIC_OUT, 1), (settings.MQTT_TOPIC_HOMEASSISTANT_BEDIENING, 1), (settings.MQTT_TOPIC_HOMELOGIC_BEDIENING, 1), (settings.MQTT_TOPIC_TOTALS, 1), (settings.MQTT_TOPIC_CHECK, 1)])
     else:
         print(("ERROR: MQTT Client connected with result code %s " % str(rc)))
 
@@ -700,7 +694,7 @@ except Exception as e:
 # Other loop*() functions are available that give a threaded interface and a
 # manual interface.
 
-while not exit:
+while not exitThread:
     time.sleep(30)  # 30s
 
 for board in openPorts:
