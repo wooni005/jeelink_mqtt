@@ -297,86 +297,8 @@ def serialPortThread(boardName, dummy):
 
                     # print("NodeId: %d Msg: %s" % (nodeId, msg))
 
-                    # nodeId 2: CEZ pulse counter
-                    if nodeId == 2:
-                        # msg[0]: Pulse counter low
-                        # msg[1]: Pulse counter high
-                        # msg[2]: Battery level (115=full)
-                        # msg[3]: 1=door open/closed status change, 0=no change
-                        # msg[4]: 0=door closed, 1=door open
-
-                        newPulses = int(msg[0]) + int(msg[1]) * 256
-                        # Battery level JeeNode: value 115 is full -15 -> 100%
-                        # Unknown wat the empty value level is for the JeeNode, we shall see :-)
-                        batteryLevel = int(msg[2]) - 15
-
-                        diffPulseTime = current_sec_time() - oldPulseTimer
-                        oldPulseTimer = current_sec_time()
-                        if firstPulsesMsg:
-                            firstPulsesMsg = False
-                            print("Ignore the first power reading")
-                            diffPulseTime = 0  # Block the first power calculation, because the time isn't right, which results in high power peak result
-
-                        # print("diffPulseTime: %d, oldPulseTimer: %d" % (diffPulseTime, oldPulseTimer))
-
-                        pulses = newPulses - oldPulses
-                        # print("newPulses: %d, oldPulses: %d, pulses: %d" % (newPulses, oldPulses, pulses))
-
-                        if oldPulses > newPulses:
-                            pulses = pulses + 0x10000  # The pulse counter rolled through to 0
-                            print('oldPulses > newPulses: The pulse counter rolled through to 0')
-
-                        if pulses > 8330:
-                            pulses = 0  # Something is wrong, using more than 50kW., likely that the JeeNode is restarted and newPulses is back to zero
-                            print('WARNING: Something is wrong, using more than 50kW., likely that the JeeNode is restarted and newPulses is back to zero')
-
-                        oldPulses = newPulses
-
-                        # Add the pulses to the kWh counters
-                        addedKWHpulsesI = 0
-                        addedKWHpulsesII = 0
-                        if not activeLowTarif:
-                            totalKWHpulsesI += pulses
-                            addedKWHpulsesI = pulses
-                        else:
-                            totalKWHpulsesII += pulses
-                            addedKWHpulsesII = pulses
-
-                        power = 0
-                        if diffPulseTime != 0:
-                            # Don't calculate the power if the previous msg is less 1 sec ago, otherwise divide by zero
-                            # P [Watt] = pulses * 360 [Ws] / t [sec]
-                            power = pulses * 3600  # 360=10.000 pulses/kWh and 3600=1.000 pulses/kWh
-                            power = power / diffPulseTime
-
-                        if totalsInitialised:
-                            # print('totalsInitialised=True')
-
-                            kwhMeterStatus['totalKWHpulsesI'] = totalKWHpulsesI
-                            kwhMeterStatus['totalKWHpulsesII'] = totalKWHpulsesII
-                            kwhMeterStatus['addedKWHpulsesI'] = addedKWHpulsesI
-                            kwhMeterStatus['addedKWHpulsesII'] = addedKWHpulsesII
-                            kwhMeterStatus['power'] = "%1.1f" % power
-                            kwhMeterStatus['oldPulses'] = oldPulses
-                            # kwhMeterStatus['signal'] = signal
-                            kwhMeterStatus['battery'] = batteryLevel
-                            mqtt_publish.single("huis/JeeLink/Node-CEZ-Elek-meter/power", json.dumps(kwhMeterStatus, separators=(', ', ':')), qos=1, hostname=settings.MQTT_ServerIP)
-                        else:
-                            # print('totalsInitialised=False')
-                            mqtt_publish.single("huis/HomeLogic/Get-kWh-Totals/command", 1, qos=1, hostname=settings.MQTT_ServerIP)
-
-                        # if not activeLowTarif:
-                        #     print(("totalKWHpulsesI: %d, power: %d W (added %d pulses, time %d sec)" % (totalKWHpulsesI, power, pulses, diffPulseTime)))
-                        # else:
-                        #     print(("totalKWHpulsesII: %d, power: %d W (added %d pulses, time %d sec)" % (totalKWHpulsesII, power, pulses, diffPulseTime)))
-
-                        # Door open/closed status changed
-                        if msg[3] == '1':
-                            status = int(msg[4])
-                            mqtt_publish.single("huis/JeeLink/Sabotage-Deurtje-bij-meter/sabotage", status, qos=1, hostname=settings.MQTT_ServerIP, retain=True)
-
                     # nodeId 3: Waterpomp regeling
-                    elif nodeId == 3:
+                    if nodeId == 3:
 
                         pompAanTijd = int(float(msg[0]) + float(msg[1]) * 256)
                         pompUitTijd = int(float(msg[2]) + float(msg[3]) * 256)
@@ -432,20 +354,6 @@ def serialPortThread(boardName, dummy):
 
                         mqtt_publish.single("huis/JeeLink/Waterpomp/water", json.dumps(waterPompStatus, separators=(', ', ':')), qos=1, hostname=settings.MQTT_ServerIP)
 
-                    # nodeId 5: Brievenbus post notificatie
-                    elif nodeId == 5:
-                        # Battery level JeeNode: value 115 is full -15 -> 100%
-                        # Unknown wat the empty value level is for the JeeNode, we shall see :-)
-                        status = int(msg[2])
-                        batteryLevel = int(msg[0]) - 15
-                        # print("Brievenbus post notificatie: doorOpen: %d, batterij:%d" % (status, batteryLevel))
-
-                        postbusStatus['battery'] = batteryLevel
-                        postbusStatus['lidChange'] = int(msg[1])
-                        postbusStatus['lidOpen'] = status
-
-                        mqtt_publish.single("huis/JeeLink/Klep-Postbus-Open/postbus", json.dumps(postbusStatus, separators=(', ', ':')), qos=1, hostname=settings.MQTT_ServerIP)
-
                     # nodeId 29: [JeeNode_OOKrelay868]
                     elif nodeId == 29:
                         # Message from [JeeNode_OOKrelay868]
@@ -461,123 +369,123 @@ def serialPortThread(boardName, dummy):
                         sensorType = int(msg[1]) & 0x0F
                         # print("JeeLink: msgLength %d, decoderType:%d, senorType %d" % (msgLength, decoderType, sensorType))
 
-                        if (decoderType == 3) and (sensorType == 7) and (msgLength == 8):
-                            # Message from KS300/KS555 Conrad/ELV Weatherstation
+                        # if (decoderType == 3) and (sensorType == 7) and (msgLength == 8):
+                        #     # Message from KS300/KS555 Conrad/ELV Weatherstation
+                        #
+                        #     # Message format:
+                        #     # 0-2: Message base
+                        #     # 3: 0-msg[1]: sensorType (& 0x0F), tempOutsideSign & 0x80 (1=minus), raining & 0x20(1=raining)
+                        #     # 4: 1-msg[2]: tempOutside & 0x0F (*0.1C), tempOutside & 0xF0 (*1C)
+                        #     # 5: 2-msg[3]: tempOutside & 0x0F (*10C), humidityOudside & 0xF0 (*1%)
+                        #     # 6: 3-msg[4]: humidityOutside & 0x0F (*10%), wind & 0xF0 (*0.1km/h)
+                        #     # 7: 4-msg[5]: wind & 0x0F (*1.0km/h), wind & 0xF0 (*10.0km/h)
+                        #     # 8: 5-msg[6]: rain & 0x0F (*1 puls), rain & 0xF0 (*16 puls)
+                        #     # 9: 6-msg[7]: rain & 0x0F (*256 puls), ??? & 0xF0 (unknown/unused)
+                        #
+                        #     # Convert outside temperature
+                        #     temp = (10 * (int(msg[3]) & 0x0F)) + (int(msg[2]) >> 4) + (0.1 * (int(msg[2]) & 0x0F))
+                        #     sensorStat = int(msg[1])
+                        #     if (sensorStat & 0x80) == 0x80:
+                        #         # Temperature sign: negative temperature
+                        #         temp = -temp
+                        #
+                        #     if (sensorStat & 0x20) == 0x20:
+                        #         # Rain dectector
+                        #         rainingBit = True
+                        #     else:
+                        #         rainingBit = False
+                        #
+                        #     # Convert outside humidity
+                        #     humidity = (10 * (int(msg[4]) & 0x0F)) + (int(msg[3]) >> 4)
+                        #
+                        #     # Convert outside windspeed km/h
+                        #     windspeed = (10.0 * (int(msg[5]) >> 4)) + (int(msg[5]) & 0x0F) + (0.1 * (int(msg[4]) >> 4))
+                        #     # print("Windspeed rechtstreeks van weerstation: %2.1f" % windspeed)
+                        #
+                        #     # Convert outside rain mm
+                        #     raincounter = (256.0 * (int(msg[7]) & 0x0F)) + (16.0 * (int(msg[6]) >> 4)) + (int(msg[6]) & 0x0F)
+                        #
+                        #     # (float(RainCounter)*10.0f)*0.253f)
+                        #     # rainQuantity   = { "idx": 154, "svalue" : "0;197.0"}
+                        #     mmRain = (raincounter * 0.253)
+                        #     # print("mmRain: %1.2f" % (mmRain))
+                        #     addedMmRain = 0.0
+                        #     if firstRainPulsesMsg:
+                        #         firstRainPulsesMsg = False
+                        #         print("Initialise the rain detection counter, without triggering it's raining")
+                        #         oldMmRain = raincounter
+                        #         rainTimer = current_sec_time()
+                        #         # mqtt_publish.single("huis/HomeLogic/Actief-Regen/bediening", 0, qos=1, hostname="192.168.5.248")
+                        #     else:
+                        #         if mmRain != oldMmRain:
+                        #             addedMmRain = mmRain - oldMmRain
+                        #
+                        #             # Wrong measurement, more than 10mm in 3-5 minutes
+                        #             if addedMmRain >= 100.0:
+                        #                 print(('addedMmRain: %1.2f: Wrong measurement, more than 100mm in 3-5 minutes, addedMmRain set to 0' % addedMmRain))
+                        #                 addedMmRain = 0.0
+                        #
+                        #             elif addedMmRain < 0.0:
+                        #                 print(('addedMmRain: %1.2f: Wrong measurement, negative value, addedMmRain set to 0' % addedMmRain))
+                        #                 addedMmRain = 0.0
+                        #             else:
+                        #                 # No false measurements, it's raining
+                        #                 raining = True
+                        #
+                        #             oldMmRain = mmRain
+                        #             rainTimer = current_sec_time()
+                        #         else:
+                        #             if raining:
+                        #                 # It was raining, but it's maybe dry, wait 20 min
+                        #                 if current_sec_time() - rainTimer >= 1200:
+                        #                     raining = False
+                        #                     # print("KS555: Het is nu droog")
+                        #
+                        #         # Check if the rainCounter detected rain
+                        #         if not raining:
+                        #             # If not, check if the rain detector detected rain
+                        #             if rainingBit:
+                        #                 raining = True
+                        #         # else:
+                        #             # If rain already detected by the rainCounter, leave this status.
+                        #             # Because the rain detector switches off very fast
+                        #
+                        #         if oldRaining != raining:
+                        #             oldRaining = raining
+                        #             # It is raining
+                        #             if raining:
+                        #                 # print "KS555: Het regent"
+                        #                 mqtt_publish.single("huis/HomeLogic/Actief-Regen/bediening", 1, qos=1, hostname="192.168.5.248")
+                        #             else:
+                        #                 mqtt_publish.single("huis/HomeLogic/Actief-Regen/bediening", 0, qos=1, hostname="192.168.5.248")
+                        #
+                        #     # print("JeeLink: KS300: Outside temp %2.1f C, humidity %d %%" % (temp, humidity))
+                        #     # print("JeeLink: KS300: Windspeed %2.1f m/s, rain %d pulses, unused?: %d" % (windspeed, raincounter, int(msg[7]) >> 4))
+                        #
+                        #     # if ((sensorStat & 0x20) != 0):
+                        #     # #Raining bit: but doesn't work very well
+                        #     #   print("JeeLink: KS300: It is raining at this moment")
+                        #     #
+                        #
+                        #     if (sensorStat & 0x40) != 0:
+                        #         # Low batt signal??
+                        #         print("JeeLink: KS300: bit 6 normally 0, but now it is 1. Is this a low-batt bit")
+                        #
+                        #     if (sensorStat & 0x10) == 0:
+                        #         # Low batt signal??
+                        #         print("JeeLink: KS300: bit 4 normally 1, but now it is 0. Is this a low-batt bit")
+                        #
+                        #     sensorData = {'Temperature': '%1.1f' % temp, 'Humidity': '%d' % humidity,
+                        #                   'Rain': "%1.2f" % addedMmRain, 'Windspeed': "%1.1f" % windspeed,
+                        #                   'Raining': raining, 'RainingBit': rainingBit}
+                        #     # sensorData['Temperature'] = temp
+                        #
+                        #     # sensorData['Battery level'] = batteryLevel
+                        #     # sensorData['Signal level'] = signal
+                        #
+                        #     mqtt_publish.single("huis/JeeLink/Weerstation/weer", json.dumps(sensorData, separators=(', ', ':')), qos=1, hostname="192.168.5.248", retain=True)
 
-                            # Message format:
-                            # 0-2: Message base
-                            # 3: 0-msg[1]: sensorType (& 0x0F), tempOutsideSign & 0x80 (1=minus), raining & 0x20(1=raining)
-                            # 4: 1-msg[2]: tempOutside & 0x0F (*0.1C), tempOutside & 0xF0 (*1C)
-                            # 5: 2-msg[3]: tempOutside & 0x0F (*10C), humidityOudside & 0xF0 (*1%)
-                            # 6: 3-msg[4]: humidityOutside & 0x0F (*10%), wind & 0xF0 (*0.1km/h)
-                            # 7: 4-msg[5]: wind & 0x0F (*1.0km/h), wind & 0xF0 (*10.0km/h)
-                            # 8: 5-msg[6]: rain & 0x0F (*1 puls), rain & 0xF0 (*16 puls)
-                            # 9: 6-msg[7]: rain & 0x0F (*256 puls), ??? & 0xF0 (unknown/unused)
-
-                            # Convert outside temperature
-                            temp = (10 * (int(msg[3]) & 0x0F)) + (int(msg[2]) >> 4) + (0.1 * (int(msg[2]) & 0x0F))
-                            sensorStat = int(msg[1])
-                            if (sensorStat & 0x80) == 0x80:
-                                # Temperature sign: negative temperature
-                                temp = -temp
-
-                            if (sensorStat & 0x20) == 0x20:
-                                # Rain dectector
-                                rainingBit = True
-                            else:
-                                rainingBit = False
-
-                            # Convert outside humidity
-                            humidity = (10 * (int(msg[4]) & 0x0F)) + (int(msg[3]) >> 4)
-
-                            # Convert outside windspeed km/h
-                            windspeed = (10.0 * (int(msg[5]) >> 4)) + (int(msg[5]) & 0x0F) + (0.1 * (int(msg[4]) >> 4))
-                            # print("Windspeed rechtstreeks van weerstation: %2.1f" % windspeed)
-
-                            # Convert outside rain mm
-                            raincounter = (256.0 * (int(msg[7]) & 0x0F)) + (16.0 * (int(msg[6]) >> 4)) + (int(msg[6]) & 0x0F)
-
-                            # (float(RainCounter)*10.0f)*0.253f)
-                            # rainQuantity   = { "idx": 154, "svalue" : "0;197.0"}
-                            mmRain = (raincounter * 0.253)
-                            # print("mmRain: %1.2f" % (mmRain))
-                            addedMmRain = 0.0
-                            if firstRainPulsesMsg:
-                                firstRainPulsesMsg = False
-                                print("Initialise the rain detection counter, without triggering it's raining")
-                                oldMmRain = raincounter
-                                rainTimer = current_sec_time()
-                                # mqtt_publish.single("huis/HomeLogic/Actief-Regen/bediening", 0, qos=1, hostname="192.168.5.248")
-                            else:
-                                if mmRain != oldMmRain:
-                                    addedMmRain = mmRain - oldMmRain
-
-                                    # Wrong measurement, more than 10mm in 3-5 minutes
-                                    if addedMmRain >= 100.0:
-                                        print(('addedMmRain: %1.2f: Wrong measurement, more than 100mm in 3-5 minutes, addedMmRain set to 0' % addedMmRain))
-                                        addedMmRain = 0.0
-
-                                    elif addedMmRain < 0.0:
-                                        print(('addedMmRain: %1.2f: Wrong measurement, negative value, addedMmRain set to 0' % addedMmRain))
-                                        addedMmRain = 0.0
-                                    else:
-                                        # No false measurements, it's raining
-                                        raining = True
-
-                                    oldMmRain = mmRain
-                                    rainTimer = current_sec_time()
-                                else:
-                                    if raining:
-                                        # It was raining, but it's maybe dry, wait 20 min
-                                        if current_sec_time() - rainTimer >= 1200:
-                                            raining = False
-                                            # print("KS555: Het is nu droog")
-
-                                # Check if the rainCounter detected rain
-                                if not raining:
-                                    # If not, check if the rain detector detected rain
-                                    if rainingBit:
-                                        raining = True
-                                # else:
-                                    # If rain already detected by the rainCounter, leave this status.
-                                    # Because the rain detector switches off very fast
-
-                                if oldRaining != raining:
-                                    oldRaining = raining
-                                    # It is raining
-                                    if raining:
-                                        # print "KS555: Het regent"
-                                        mqtt_publish.single("huis/HomeLogic/Actief-Regen/bediening", 1, qos=1, hostname="192.168.5.248")
-                                    else:
-                                        mqtt_publish.single("huis/HomeLogic/Actief-Regen/bediening", 0, qos=1, hostname="192.168.5.248")
-
-                            # print("JeeLink: KS300: Outside temp %2.1f C, humidity %d %%" % (temp, humidity))
-                            # print("JeeLink: KS300: Windspeed %2.1f m/s, rain %d pulses, unused?: %d" % (windspeed, raincounter, int(msg[7]) >> 4))
-
-                            # if ((sensorStat & 0x20) != 0):
-                            # #Raining bit: but doesn't work very well
-                            #   print("JeeLink: KS300: It is raining at this moment")
-                            #
-
-                            if (sensorStat & 0x40) != 0:
-                                # Low batt signal??
-                                print("JeeLink: KS300: bit 6 normally 0, but now it is 1. Is this a low-batt bit")
-
-                            if (sensorStat & 0x10) == 0:
-                                # Low batt signal??
-                                print("JeeLink: KS300: bit 4 normally 1, but now it is 0. Is this a low-batt bit")
-
-                            sensorData = {'Temperature': '%1.1f' % temp, 'Humidity': '%d' % humidity,
-                                          'Rain': "%1.2f" % addedMmRain, 'Windspeed': "%1.1f" % windspeed,
-                                          'Raining': raining, 'RainingBit': rainingBit}
-                            # sensorData['Temperature'] = temp
-
-                            # sensorData['Battery level'] = batteryLevel
-                            # sensorData['Signal level'] = signal
-
-                            mqtt_publish.single("huis/JeeLink/Weerstation/weer", json.dumps(sensorData, separators=(', ', ':')), qos=1, hostname="192.168.5.248", retain=True)
-
-                        elif (decoderType == 3) and (sensorType == 1) and (msgLength == 5):
+                        if (decoderType == 3) and (sensorType == 1) and (msgLength == 5):
                             # Message from Conrad/ELV S300 Temp/humidity
 
                             sensorStat = int(msg[1])
@@ -604,7 +512,7 @@ def serialPortThread(boardName, dummy):
                             # sensorData['Battery level'] = batteryLevel
                             # sensorData['Signal level'] = signal
 
-                            mqtt_publish.single("huis/JeeLink/Temp-Vriezer/temp", json.dumps(sensorData, separators=(', ', ':')), hostname="192.168.5.248", retain=True)
+                            mqtt_publish.single("huis/JeeLink/Temp-Vriezer-Werkplaats/temp", json.dumps(sensorData, separators=(', ', ':')), hostname="192.168.5.248", retain=True)
                     else:
                         print(("JeeLink: Received an unknown message from NodeID %d" % nodeId))
 
